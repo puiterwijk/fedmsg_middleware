@@ -1,3 +1,7 @@
+try:
+    from urllib2 import urlopen
+except ImportError:
+    from urllib import urlopen
 
 import BeautifulSoup
 import webob
@@ -11,17 +15,51 @@ from moksha.wsgi.widgets.api import get_moksha_socket
 from moksha.wsgi.widgets.api import LiveWidget
 from tw2.jqplugins.gritter import gritter_resources
 
+configuration_base_url = 'http://localhost:6543/prefs/'
+
 truthy = frozenset(('t', 'true', 'y', 'yes', 'on', '1'))
 
+class PersonalConfig:
+    enabled = True
+    timeout = 10000
+    enabled_filters = ['announce']
+    usernames = []
+    maintainers = []
+    packages = []
 
 class FedmsgMiddleware(object):
     """ WSGI middleware that injects a moksha socket for fedmsg popups """
 
-    def __init__(self, app, config=None):
+    def get_personal_preferences(username):
+        if not username:
+            return PersonalConfig()
+        req = urlopen('%(base)s%(user)s' % {'base': configuration_base_url, 'user': username})
+        if not req:
+            return PersonalConfig()
+        data = req.read()
+        if not data:
+            return PersonalConfig()
+        result = json.loads(data)
+        if not result:
+            return PersonalConfig()
+        if result['status'] != 'OK':
+            return PersonalConfig()
+        cfg = PersonalConfig()
+        cfg.enabled = result['enabled']
+        cfg.timeout = result['timeout']
+        cfg.enabled_filters = result['enabled_filters']
+        cfg.usernames = result['usernames']
+        cfg.maintainers = result['maintainers']
+        cfg.packages = result['packages']
+        return cfg
+
+
+    def __init__(self, app, config=None, get_username_function=None):
         """ Configuration arguments are documented in README.rst """
 
         self.app = app
         self.config = config
+        self.preferences = get_personal_preferences(get_username_function())
 
         if not self.config:
             self.config = get_moksha_appconfig()
